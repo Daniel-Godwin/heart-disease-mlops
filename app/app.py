@@ -3,9 +3,27 @@ import pandas as pd
 import numpy as np
 import joblib
 import shap
+import os
+import matplotlib.pyplot as plt
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
+
+
+# =========================
+# PAGE CONFIG (MUST BE FIRST)
+# =========================
+st.set_page_config(page_title="Clinical SHAP Dashboard", layout="wide")
+
+
+# =========================
+# HEADER
+# =========================
+st.markdown("""
+# 🏥 Heart Disease Clinical Decision Support System
+
+This system uses Machine Learning and Explainable AI (SHAP) to predict heart disease risk and provide interpretable insights for clinical decision-making.
+""")
 
 
 # =========================
@@ -20,12 +38,6 @@ OUTPUT_DIR = "reports/clinical"
 # =========================
 # LOAD MODEL + DATA
 # =========================
-st.set_page_config(page_title="Clinical SHAP Dashboard", layout="wide")
-
-st.title("🏥 Heart Disease Clinical AI Dashboard")
-st.write("Explainable AI system using SHAP + Machine Learning")
-
-
 model = joblib.load(MODEL_PATH)
 features = joblib.load(FEATURES_PATH)
 
@@ -45,7 +57,7 @@ shap_exp = explainer(X)
 
 
 # =========================
-# SIDEBAR - PATIENT SELECT
+# SIDEBAR
 # =========================
 st.sidebar.header("Patient Selection")
 
@@ -57,14 +69,20 @@ patient_index = st.sidebar.slider(
 )
 
 patient_data = X.iloc[patient_index]
+patient_df = pd.DataFrame([patient_data], columns=features)
 
 
 # =========================
 # PREDICTION
 # =========================
-patient_df = pd.DataFrame([patient_data], columns=features)
 prob = model.predict_proba(patient_df)[0][1]
-prediction = "HIGH RISK" if prob > 0.5 else "LOW RISK"
+
+if prob > 0.7:
+    prediction = "HIGH RISK"
+elif prob > 0.4:
+    prediction = "MODERATE RISK"
+else:
+    prediction = "LOW RISK"
 
 
 # =========================
@@ -75,8 +93,12 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("🧠 Prediction Result")
 
-    st.metric("Risk Probability", f"{prob:.2f}")
-    st.markdown(f"### Status: {prediction}")
+    if prob > 0.7:
+        st.error(f"🔴 HIGH RISK ({prob:.2f})")
+    elif prob > 0.4:
+        st.warning(f"🟡 MODERATE RISK ({prob:.2f})")
+    else:
+        st.success(f"🟢 LOW RISK ({prob:.2f})")
 
 with col2:
     st.subheader("📊 Patient Data")
@@ -84,10 +106,8 @@ with col2:
 
 
 # =========================
-# SHAP EXPLANATION
+# SHAP VALUES
 # =========================
-st.subheader("🔍 SHAP Explainability (Feature Impact)")
-
 shap_values = shap_exp.values[patient_index, :, 1]
 
 shap_df = pd.DataFrame({
@@ -95,11 +115,35 @@ shap_df = pd.DataFrame({
     "impact": shap_values
 })
 
-shap_df = shap_df.reindex(
+shap_df = shap_df.loc[
     shap_df["impact"].abs().sort_values(ascending=False).index
+]
+
+top_features = shap_df.head(5)
+
+
+# =========================
+# SHAP BAR CHART
+# =========================
+st.subheader("🔍 SHAP Feature Impact")
+st.bar_chart(shap_df.set_index("feature"))
+
+
+# =========================
+# SHAP WATERFALL
+# =========================
+st.subheader("📉 Detailed SHAP Explanation")
+
+explanation = shap.Explanation(
+    values=shap_values,
+    base_values=shap_exp.base_values[patient_index, 1],
+    data=patient_data,
+    feature_names=features
 )
 
-st.bar_chart(shap_df.set_index("feature"))
+fig, ax = plt.subplots()
+shap.plots.waterfall(explanation, show=False)
+st.pyplot(fig)
 
 
 # =========================
@@ -107,17 +151,30 @@ st.bar_chart(shap_df.set_index("feature"))
 # =========================
 st.subheader("⚠️ Top Contributing Factors")
 
-top_features = shap_df.head(5)
-
 for _, row in top_features.iterrows():
     direction = "increases" if row["impact"] > 0 else "decreases"
     st.write(f"• **{row['feature']}** {direction} risk")
 
 
 # =========================
-# PDF REPORT GENERATION
+# CLINICAL INTERPRETATION
+# =========================
+st.subheader("🧠 AI Clinical Interpretation")
+
+if prob > 0.7:
+    st.write("The patient shows a high likelihood of heart disease. Immediate clinical evaluation is strongly recommended.")
+elif prob > 0.4:
+    st.write("The patient has a moderate risk. Further diagnostic tests are advised.")
+else:
+    st.write("The patient is at low risk. Routine monitoring is sufficient.")
+
+
+# =========================
+# PDF GENERATION
 # =========================
 def generate_pdf(index, prob, top_features):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     file_path = f"{OUTPUT_DIR}/patient_{index}_report.pdf"
 
     doc = SimpleDocTemplate(file_path)
@@ -142,10 +199,24 @@ def generate_pdf(index, prob, top_features):
 
 
 # =========================
-# DOWNLOAD REPORT BUTTON
+# DOWNLOAD REPORT
 # =========================
 st.subheader("📄 Generate Clinical Report")
 
 if st.button("Generate PDF Report"):
     path = generate_pdf(patient_index, prob, top_features)
-    st.success(f"Report saved: {path}")
+
+    with open(path, "rb") as file:
+        st.download_button(
+            label="⬇️ Download Report",
+            data=file,
+            file_name=os.path.basename(path),
+            mime="application/pdf"
+        )
+
+
+# =========================
+# FOOTER
+# =========================
+st.markdown("---")
+st.markdown("Developed by **Godwin Daniel** | Explainable AI in Healthcare")
