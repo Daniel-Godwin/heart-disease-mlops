@@ -10,10 +10,10 @@ venv/
 
 # Data (optional)
 data/raw/
-data/processed/
+#data/processed/
 
 # Models
-models/*.pkl
+# models/*.pkl
 
 # Reports
 reports/
