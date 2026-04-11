@@ -44,6 +44,12 @@ features = joblib.load(FEATURES_PATH)
 df = pd.read_csv(DATA_PATH)
 X = df[features]
 
+df["age_group"] = pd.cut(
+    df["age"],
+    bins=[0, 40, 55, 100],
+    labels=["Young", "Middle", "Old"]
+)
+
 
 # =========================
 # SHAP EXPLAINER
@@ -213,6 +219,89 @@ if st.button("Generate PDF Report"):
             file_name=os.path.basename(path),
             mime="application/pdf"
         )
+
+
+# =========================
+# FAIRNESS ANALYSIS
+# =========================
+def compute_fairness(df, model, feature):
+
+    X_full = df[features]
+    y_full = df["target"]
+
+    groups = df[feature].unique()
+    results = []
+
+    for g in groups:
+        idx = df[feature] == g
+
+        X_group = X_full[idx]
+        y_group = y_full[idx]
+
+        if len(y_group) < 10:
+            continue
+
+        y_pred = model.predict(X_group)
+
+        acc = (y_pred == y_group).mean()
+        rec = ((y_pred == 1) & (y_group == 1)).sum() / max((y_group == 1).sum(), 1)
+
+        results.append({
+            "group": str(g),
+            "size": len(y_group),
+            "accuracy": acc,
+            "recall": rec
+        })
+
+    fairness_df = pd.DataFrame(results)
+
+    recall_gap = fairness_df["recall"].max() - fairness_df["recall"].min()
+    acc_gap = fairness_df["accuracy"].max() - fairness_df["accuracy"].min()
+
+    return fairness_df, recall_gap, acc_gap
+
+
+# =========================
+# FAIRNESS DASHBOARD
+# =========================
+st.subheader("⚖️ Fairness Analysis")
+
+tab1, tab2 = st.tabs(["Gender Bias", "Age Bias"])
+
+# -------------------------
+# GENDER FAIRNESS
+# -------------------------
+with tab1:
+    fairness_df, recall_gap, acc_gap = compute_fairness(df, model, "sex")
+
+    st.write("### Group Performance (Sex)")
+    st.dataframe(fairness_df)
+
+    st.write(f"📉 Recall Gap: {recall_gap:.3f}")
+    st.write(f"📉 Accuracy Gap: {acc_gap:.3f}")
+
+    if recall_gap > 0.1:
+        st.error("⚠️ Potential gender bias detected")
+    else:
+        st.success("✅ Model appears fair across gender")
+
+
+# -------------------------
+# AGE FAIRNESS
+# -------------------------
+with tab2:
+    fairness_df, recall_gap, acc_gap = compute_fairness(df, model, "age_group")
+
+    st.write("### Group Performance (Age)")
+    st.dataframe(fairness_df)
+
+    st.write(f"📉 Recall Gap: {recall_gap:.3f}")
+    st.write(f"📉 Accuracy Gap: {acc_gap:.3f}")
+
+    if recall_gap > 0.1:
+        st.error("⚠️ Potential age bias detected")
+    else:
+        st.success("✅ Model appears fair across age groups")
 
 
 # =========================

@@ -1,9 +1,3 @@
-"""
-train_model.py
-Train selected ML model using factory pattern.
-Logs results + saves model (MLflow integrated, production-ready).
-"""
-
 import mlflow
 import mlflow.sklearn
 import os
@@ -11,7 +5,7 @@ import joblib
 import pandas as pd
 import numpy as np
 
-
+from sklearn.model_selection import StratifiedKFold, RandomizedSearchCV
 
 from src.models.model_factory import get_model
 from src.models.train_models import evaluate_model
@@ -45,7 +39,7 @@ def load_data(path):
     data = pd.read_csv(path)
 
     if TARGET_COL not in data.columns:
-        raise ValueError(f"❌ Target column '{TARGET_COL}' not found in dataset!")
+        raise ValueError(f"❌ Target column '{TARGET_COL}' not found!")
 
     X = data.drop(columns=[TARGET_COL])
     y = data[TARGET_COL]
@@ -54,30 +48,24 @@ def load_data(path):
 
 
 # -------------------------------
-# FEATURE IMPORTANCE DEBUG (OPTIONAL BUT USEFUL)
+# FEATURE IMPORTANCE
 # -------------------------------
 def print_feature_importance(model, X):
     print("\n🔥 Feature Importance:")
 
     importances = None
 
-    if hasattr(model, "feature_importances_"):  # Random Forest
+    if hasattr(model, "feature_importances_"):
         importances = model.feature_importances_
 
-    elif hasattr(model, "coef_"):  # Logistic Regression / SVM (linear)
+    elif hasattr(model, "coef_"):
         importances = np.abs(model.coef_[0])
 
     if importances is not None:
-        feature_importance = sorted(
-            zip(X.columns, importances),
-            key=lambda x: x[1],
-            reverse=True
-        )
-
-        for f, v in feature_importance:
+        for f, v in sorted(zip(X.columns, importances), key=lambda x: x[1], reverse=True):
             print(f"{f}: {v:.4f}")
     else:
-        print("⚠️ Model does not support direct feature importance.")
+        print("⚠️ No feature importance available.")
 
 
 # -------------------------------
@@ -87,7 +75,7 @@ def train(model_name="random_forest"):
     print(f"🚀 Training model: {model_name}")
 
     # ---------------------------
-    # 1. LOAD DATA
+    # LOAD DATA
     # ---------------------------
     X_train, y_train = load_data(TRAIN_PATH)
     X_test, y_test = load_data(TEST_PATH)
@@ -95,25 +83,70 @@ def train(model_name="random_forest"):
     print("✅ Training features:", X_train.columns.tolist())
 
     # ---------------------------
-    # 2. INIT MODEL
+    # INIT MODEL
     # ---------------------------
-    model = get_model(model_name)
+    base_model = get_model(model_name)
 
     # ---------------------------
-    # 3. START MLFLOW RUN
+    # HYPERPARAMETER SEARCH (ONLY RF)
+    # ---------------------------
+    if model_name == "random_forest":
+        print("🧠 Running Hyperparameter Tuning...")
+
+        param_dist = {
+            "n_estimators": [100, 200, 300, 500],
+            "max_depth": [None, 5, 10, 20],
+            "min_samples_split": [2, 5, 10],
+            "min_samples_leaf": [1, 2, 4],
+            "bootstrap": [True, False]
+        }
+
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+        model = RandomizedSearchCV(
+            estimator=base_model,
+            param_distributions=param_dist,
+            n_iter=20,
+            scoring="roc_auc",
+            cv=cv,
+            verbose=1,
+            n_jobs=-1,
+            random_state=42
+        )
+
+    else:
+        model = base_model
+
+    # ---------------------------
+    # MLFLOW RUN
     # ---------------------------
     with mlflow.start_run():
 
         # ---------------------------
-        # 4. TRAIN
+        # TRAIN
         # ---------------------------
         model.fit(X_train, y_train)
 
         # ---------------------------
-        # 5. EVALUATE
+        # HANDLE BEST MODEL
         # ---------------------------
-        train_metrics = evaluate_model(model, X_train, y_train)
-        test_metrics = evaluate_model(model, X_test, y_test)
+        if isinstance(model, RandomizedSearchCV):
+            best_model = model.best_estimator_
+
+            print("✅ Best Parameters:", model.best_params_)
+            print(f"📊 Best CV Score: {model.best_score_:.4f}")
+
+            mlflow.log_params(model.best_params_)
+            mlflow.log_metric("cv_score", model.best_score_)
+
+        else:
+            best_model = model
+
+        # ---------------------------
+        # EVALUATE
+        # ---------------------------
+        train_metrics = evaluate_model(best_model, X_train, y_train)
+        test_metrics = evaluate_model(best_model, X_test, y_test)
 
         print("\n📊 Train Metrics:")
         for k, v in train_metrics.items():
@@ -124,7 +157,7 @@ def train(model_name="random_forest"):
             print(f"{k}: {v:.4f}")
 
         # ---------------------------
-        # 6. LOG TO MLFLOW
+        # LOG METRICS
         # ---------------------------
         mlflow.log_param("model_name", model_name)
 
@@ -132,32 +165,31 @@ def train(model_name="random_forest"):
             mlflow.log_metric(f"test_{k}", v)
 
         # ---------------------------
-        # 7. FEATURE IMPORTANCE (DEBUG)
+        # FEATURE IMPORTANCE
         # ---------------------------
-        print_feature_importance(model, X_train)
+        print_feature_importance(best_model, X_train)
 
         # ---------------------------
-        # 8. SAVE LOCALLY
+        # SAVE MODEL
         # ---------------------------
         os.makedirs(MODEL_DIR, exist_ok=True)
 
-        joblib.dump(model, MODEL_PATH)
+        joblib.dump(best_model, MODEL_PATH)
         joblib.dump(X_train.columns.tolist(), FEATURES_PATH)
 
         print(f"\n💾 Model saved at: {MODEL_PATH}")
-        print(f"💾 Features saved at: {FEATURES_PATH}")
 
         # ---------------------------
-        # 9. CREATE SIGNATURE (FIXED POSITION)
+        # SIGNATURE
         # ---------------------------
-        signature = infer_signature(X_train, model.predict(X_train))
+        signature = infer_signature(X_train, best_model.predict(X_train))
         input_example = X_train.iloc[:1]
 
         # ---------------------------
-        # 10. REGISTER MODEL IN MLFLOW
+        # REGISTER MODEL
         # ---------------------------
         mlflow.sklearn.log_model(
-            model,
+            best_model,
             artifact_path="model",
             registered_model_name="heart_disease_model",
             signature=signature,
