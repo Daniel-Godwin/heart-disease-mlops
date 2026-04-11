@@ -1,0 +1,19 @@
+model:
+  name: logistic_regression  # or svm or random_forest
+
+training:
+  test_size: 0.2
+  random_state: 42
+
+preprocessing:
+  scale: true
+  drop_na: true
+
+paths:
+  raw_data: data/raw/heart.csv
+  processed_data: data/processed/heart_processed.csv
+  model_path: models/model.pkl
+
+api:
+  host: 127.0.0.1
+  port: 8000
