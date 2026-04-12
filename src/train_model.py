@@ -1,3 +1,13 @@
+"""
+train_model.py
+--------------
+Production-ready training pipeline with:
+- MLflow tracking
+- Hyperparameter tuning (RandomizedSearchCV)
+- Fairness-aware training (sample weighting)
+- Clean, stable implementation
+"""
+
 import mlflow
 import mlflow.sklearn
 import os
@@ -69,6 +79,46 @@ def print_feature_importance(model, X):
 
 
 # -------------------------------
+# FAIRNESS WEIGHTING (IMPROVED)
+# -------------------------------
+def compute_sample_weights(X, y, sensitive_col="sex"):
+    """
+    Fairness-aware weighting using BOTH:
+    - demographic group (e.g., sex)
+    - class label (target)
+
+    This improves fairness across groups and outcomes.
+    """
+
+    df = X.copy()
+    df["target"] = y
+
+    # Safety check
+    if sensitive_col not in df.columns:
+        print(f"⚠️ Column '{sensitive_col}' not found. Skipping weighting.")
+        return None
+
+    # Count per (group, target)
+    group_target_counts = df.groupby([sensitive_col, "target"]).size()
+
+    weights = []
+
+    for _, row in df.iterrows():
+        g = row[sensitive_col]
+        t = row["target"]
+
+        weight = 1.0 / group_target_counts[(g, t)]
+        weights.append(weight)
+
+    weights = np.array(weights)
+
+    # Normalize weights
+    weights = weights / weights.mean()
+
+    return weights
+
+
+# -------------------------------
 # TRAIN FUNCTION
 # -------------------------------
 def train(model_name="random_forest"):
@@ -88,7 +138,7 @@ def train(model_name="random_forest"):
     base_model = get_model(model_name)
 
     # ---------------------------
-    # HYPERPARAMETER SEARCH (ONLY RF)
+    # HYPERPARAMETER SEARCH (RF)
     # ---------------------------
     if model_name == "random_forest":
         print("🧠 Running Hyperparameter Tuning...")
@@ -113,7 +163,6 @@ def train(model_name="random_forest"):
             n_jobs=-1,
             random_state=42
         )
-
     else:
         model = base_model
 
@@ -123,14 +172,21 @@ def train(model_name="random_forest"):
     with mlflow.start_run():
 
         # ---------------------------
-        # TRAIN
+        # FAIRNESS WEIGHTS
         # ---------------------------
-        model.fit(X_train, y_train)
+        sample_weights = compute_sample_weights(X_train, y_train, "sex")
+
+        if sample_weights is not None:
+            print("⚖️ Applying fairness-aware training...")
+        else:
+            print("⚠️ Training without fairness weighting")
 
         # ---------------------------
-        # HANDLE BEST MODEL
+        # TRAIN (FIXED - SINGLE CALL)
         # ---------------------------
         if isinstance(model, RandomizedSearchCV):
+            model.fit(X_train, y_train, sample_weight=sample_weights)
+
             best_model = model.best_estimator_
 
             print("✅ Best Parameters:", model.best_params_)
@@ -140,6 +196,7 @@ def train(model_name="random_forest"):
             mlflow.log_metric("cv_score", model.best_score_)
 
         else:
+            model.fit(X_train, y_train, sample_weight=sample_weights)
             best_model = model
 
         # ---------------------------
