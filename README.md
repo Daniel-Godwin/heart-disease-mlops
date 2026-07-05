@@ -1,5 +1,8 @@
 ![CI](https://github.com/Daniel-Godwin/heart-disease-mlops/actions/workflows/ci.yml/badge.svg)
 # 🏥 Heart Disease Prediction & Explainable AI System (MLOps Project)
+![CI](https://github.com/Daniel-Godwin/heart-disease-mlops/actions/workflows/ci.yml/badge.svg)
+
+🔴 **Live Demo:** [heart-disease-mlops-5zxr.onrender.com/docs](https://heart-disease-mlops-5zxr.onrender.com/docs)
 
 ## 📌 Overview
 
