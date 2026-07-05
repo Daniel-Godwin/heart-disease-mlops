@@ -1,0 +1,65 @@
+name: Weekly Drift Monitor
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # Every Monday 06:00 UTC
+  workflow_dispatch:        # Allows manual runs from the Actions tab
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy scipy scikit-learn joblib
+
+      - name: Run drift detection
+        run: python run.py --stage drift
+
+      - name: Upload drift report
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-drift-report
+          path: reports/drift_report.json
+
+      - name: Open issue if drift detected
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('reports/drift_report.json', 'utf8'));
+            if (report.overall_drift_detected) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `⚠️ Data drift detected — ${report.n_features_drifted}/${report.n_features_checked} features shifted`,
+                labels: ['drift', 'monitoring'],
+                body: [
+                  '## Automated Drift Alert',
+                  '',
+                  `**Drifted features:** ${report.drifted_features.join(', ')}`,
+                  `**Checked:** ${report.n_features_checked} features`,
+                  `**Timestamp:** ${report.timestamp}`,
+                  '',
+                  'Retraining is recommended. Run `python run.py` locally and push updated model artifacts.',
+                  '',
+                  '_Full report available as a workflow artifact._'
+                ].join('\n')
+              });
+            } else {
+              console.log('No significant drift — all clear.');
+            }
