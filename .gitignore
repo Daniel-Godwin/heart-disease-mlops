@@ -24,3 +24,6 @@ mlruns/
 # OS
 .DS_Store
 Thumbs.db
+# Runtime artifacts
+logs/
+reports/drift_report.json

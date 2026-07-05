@@ -86,6 +86,10 @@ def load_features():
 def load_data():
     return pd.read_csv(DATA_PATH)
 
+@st.cache_resource
+def load_scaler():
+    return joblib.load("models/scaler.joblib")
+
 
 model = load_model()
 features = load_features()
@@ -98,7 +102,11 @@ df["age_group"] = pd.cut(
     labels=["Young", "Middle", "Old"]
 )
 
-X = df[features]
+# RAW values for display; SCALED values for the model
+# (the model was trained on StandardScaler-transformed features)
+scaler = load_scaler()
+X_raw = df[features]
+X = pd.DataFrame(scaler.transform(X_raw), columns=features)
 
 # =========================
 # INIT ENGINES
@@ -158,7 +166,7 @@ with col3:
 
 
 st.subheader("📋 Patient Clinical Profile")
-st.dataframe(patient_data)
+st.dataframe(X_raw.iloc[[patient_index]])
 
 
 # =========================

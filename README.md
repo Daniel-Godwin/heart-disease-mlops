@@ -75,21 +75,55 @@ streamlit run app/app.py
 
 ---
 
-## ⚡ API (FastAPI - Optional Extension)
+## ⚡ API (FastAPI)
 
-Provides REST endpoints for prediction:
+Production REST API with input validation, health checks, and prediction logging:
 
 ```bash
-POST /predict
+uvicorn api.main:app --host 0.0.0.0 --port 8000
 ```
 
-Returns:
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Service info |
+| `/health` | GET | Liveness/readiness check |
+| `/model-info` | GET | Model metadata & feature list |
+| `/predict` | POST | Patient risk prediction |
+| `/docs` | GET | Interactive Swagger UI |
+
+Example request:
+
+```json
+POST /predict
+{
+  "age": 52, "sex": 1, "cp": 0, "trestbps": 130, "chol": 230,
+  "fbs": 0, "restecg": 1, "thalach": 150, "exang": 0,
+  "oldpeak": 1.0, "slope": 2, "ca": 0, "thal": 2
+}
+```
+
+Response:
 
 ```json
 {
-  "risk_probability": 0.82
+  "prediction": 1,
+  "risk_probability": 0.7607,
+  "risk_level": "high",
+  "model_version": "1.0.0"
 }
 ```
+
+---
+
+## 📉 Drift Detection & Monitoring
+
+Data drift is detected with **Kolmogorov–Smirnov tests** and **Population Stability Index (PSI)** per feature:
+
+```bash
+python run.py --stage drift
+```
+
+Produces `reports/drift_report.json` with per-feature statistics and a retraining recommendation. Thresholds: KS p-value < 0.05, PSI > 0.2, overall drift if ≥30% of features shift. All API predictions are logged as structured JSON lines (`logs/predictions.jsonl`) for downstream monitoring.
 
 ---
 
@@ -139,22 +173,27 @@ pip install -r requirements.txt
 
 ## ▶️ Usage
 
-### Train Model
+### Full Pipeline (Orchestrated)
 
 ```bash
-python -m src.train_model
+python run.py                    # preprocess -> train -> drift check
+python run.py --stage preprocess # single stage
+python run.py --stage train
+python run.py --stage drift
 ```
+
+### Run Tests
+
+```bash
+pytest tests/ -v
+```
+
+29 tests cover preprocessing, model artifacts, inference, the API (integration tests), and a **model quality gate** (accuracy ≥ 0.75, ROC-AUC ≥ 0.80 on held-out data).
 
 ### Generate SHAP Explanations
 
 ```bash
 python -m monitoring.explainability
-```
-
-### Generate Clinical Report
-
-```bash
-python -m src.clinical_shap_report
 ```
 
 ### Run Dashboard
@@ -167,23 +206,35 @@ streamlit run app/app.py
 
 ## 🔁 CI/CD Pipeline
 
-GitHub Actions automatically:
+GitHub Actions (on every push/PR to `main`):
 
-* Installs dependencies
-* Runs tests
-* Executes training pipeline
-* Validates explainability module
+1. Install dependencies (with pip caching)
+2. Run full test suite — **build fails if any test fails**
+3. Run drift detection and upload the drift report as a CI artifact
+4. Build the Docker image (only if tests pass)
 
 ---
 
-## 🐳 Docker (Optional)
+## 🐳 Docker
 
-Build and run:
+Single container (API):
 
 ```bash
-docker build -t heart-mlops .
-docker run -p 8501:8501 heart-mlops
+docker build -f docker/Dockerfile -t heart-mlops .
+docker run -p 8000:8000 heart-mlops
 ```
+
+Full stack (API + Dashboard + MLflow UI):
+
+```bash
+docker compose -f docker/docker-compose.yml up --build
+```
+
+| Service | Port |
+|---------|------|
+| FastAPI | 8000 |
+| Streamlit Dashboard | 8501 |
+| MLflow UI | 5000 |
 
 ---
 

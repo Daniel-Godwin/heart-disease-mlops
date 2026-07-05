@@ -1,6 +1,7 @@
 pandas
 numpy
 scikit-learn
+scipy
 matplotlib
 seaborn
 mlflow
@@ -8,8 +9,8 @@ fastapi
 uvicorn
 joblib
 pydantic
-prefect
-docker
 shap
 reportlab
 streamlit
+pytest
+httpx

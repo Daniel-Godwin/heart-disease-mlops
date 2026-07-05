@@ -1,0 +1,40 @@
+# Run from repo root:  docker compose -f docker/docker-compose.yml up --build
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: heart-api
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../models:/app/models
+      - ../logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: heart-dashboard
+    command: streamlit run app/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    volumes:
+      - ../models:/app/models
+    depends_on:
+      - api
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:latest
+    container_name: heart-mlflow
+    command: mlflow ui --backend-store-uri sqlite:///mlflow.db --host 0.0.0.0 --port 5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - ../mlflow.db:/mlflow.db

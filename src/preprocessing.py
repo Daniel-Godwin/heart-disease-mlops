@@ -72,6 +72,11 @@ def scale_features(X_train, X_test):
     X_train_scaled = pd.DataFrame(X_train_scaled, columns=X_train.columns)
     X_test_scaled = pd.DataFrame(X_test_scaled, columns=X_test.columns)
 
+    # ✅ PERSIST SCALER for inference (API + predict.py depend on it)
+    os.makedirs("models", exist_ok=True)
+    joblib.dump(scaler, os.path.join("models", "scaler.joblib"))
+    print("✅ Scaler saved to models/scaler.joblib")
+
     return X_train_scaled, X_test_scaled, scaler
 
 

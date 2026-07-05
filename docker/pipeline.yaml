@@ -1,0 +1,45 @@
+# Pipeline configuration for the heart disease MLOps project.
+# Consumed by orchestration tooling / documentation of stage contracts.
+
+pipeline:
+  name: heart-disease-mlops
+  version: "1.0.0"
+
+stages:
+  - name: preprocess
+    entrypoint: python run.py --stage preprocess
+    inputs:
+      - data/processed/heart_processed.csv
+    outputs:
+      - data/processed/train.csv
+      - data/processed/test.csv
+      - models/scaler.joblib
+
+  - name: train
+    entrypoint: python run.py --stage train
+    inputs:
+      - data/processed/train.csv
+      - data/processed/test.csv
+    outputs:
+      - models/model.pkl
+      - models/features.pkl
+    tracking:
+      backend: mlflow
+      uri: sqlite:///mlflow.db
+      experiment: heart_disease_experiment
+
+  - name: drift
+    entrypoint: python run.py --stage drift
+    inputs:
+      - data/processed/train.csv
+      - data/processed/test.csv
+    outputs:
+      - reports/drift_report.json
+    thresholds:
+      ks_p_value: 0.05
+      psi: 0.2
+      feature_ratio: 0.3
+
+quality_gates:
+  min_accuracy: 0.75
+  min_roc_auc: 0.80

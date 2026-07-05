@@ -3,55 +3,22 @@ predict.py
 ----------
 Loads trained model and makes predictions for new inputs.
 Production-ready inference module.
+
+IMPORTANT: The model was trained on StandardScaler-transformed features,
+so raw clinical inputs are scaled with the persisted scaler before
+prediction (bug fix over the original version).
 """
 
-import joblib
-import pandas as pd
-import os
-
-MODEL_PATH = "models/model.pkl"
-FEATURES_PATH = "models/features.pkl"
+from src.utils import load_model, load_features, load_scaler, prepare_input, get_risk_level
 
 
-
-def load_model():
-    if not os.path.exists(MODEL_PATH):
-        raise FileNotFoundError("Model not found. Train model first.")
-
-    return joblib.load(MODEL_PATH)
-
-
-def load_features():
-    if not os.path.exists(FEATURES_PATH):
-        raise FileNotFoundError("Feature file not found.")
-
-    return joblib.load(FEATURES_PATH)
-
-def get_risk_level(prob):
-    if prob is None:
-        return "unknown"
-    elif prob < 0.3:
-        return "low"
-    elif prob < 0.7:
-        return "medium"
-    else:
-        return "high"
-    
-def predict(input_data: dict):
-
+def predict(input_data: dict) -> dict:
+    """Predict heart disease risk for one patient (raw clinical values)."""
     model = load_model()
     feature_names = load_features()
+    scaler = load_scaler()
 
-    # Convert input to DataFrame
-    X = pd.DataFrame([input_data])
-
-    # ✅ Ensure all required features exist
-    missing = set(feature_names) - set(X.columns)
-    if missing:
-        raise ValueError(f"Missing features: {missing}")
-
-    # ✅ Ensure correct order
-    X = X[feature_names]
+    X = prepare_input(input_data, feature_names=feature_names, scaler=scaler)
 
     prediction = model.predict(X)[0]
 
@@ -62,25 +29,14 @@ def predict(input_data: dict):
     return {
         "prediction": int(prediction),
         "probability": float(prob) if prob is not None else None,
-         "risk_level": get_risk_level(prob)
+        "risk_level": get_risk_level(prob),
     }
 
 
 if __name__ == "__main__":
     sample = {
-        "age": 52,
-        "sex": 1,
-        "cp": 0,
-        "trestbps": 130,
-        "chol": 230,
-        "fbs": 0,
-        "restecg": 1,
-        "thalach": 150,
-        "exang": 0,
-        "oldpeak": 1.0,
-        "slope": 2,
-        "ca": 0,
-        "thal": 2
+        "age": 52, "sex": 1, "cp": 0, "trestbps": 130, "chol": 230,
+        "fbs": 0, "restecg": 1, "thalach": 150, "exang": 0,
+        "oldpeak": 1.0, "slope": 2, "ca": 0, "thal": 2,
     }
-
     print(predict(sample))
