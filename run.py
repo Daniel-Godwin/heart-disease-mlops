@@ -37,7 +37,7 @@ def stage_preprocess():
 
 def stage_train():
     from src import train_model
-    train_model.main()
+    train_model.train("random_forest")
 
 
 def stage_drift():
